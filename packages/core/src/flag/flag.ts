@@ -57,6 +57,28 @@ export const Flag = {
   get OPENCODE_EXPERIMENTAL_REFERENCES() {
     return enabledByExperimental("OPENCODE_EXPERIMENTAL_REFERENCES")
   },
+  // Dedicated opt-in (not folded into OPENCODE_EXPERIMENTAL) so enabling other
+  // experiments never silently activates capsule context. Off → the capsule
+  // System Context source contributes nothing.
+  get OPENCODE_EXPERIMENTAL_CAPSULE() {
+    return truthy("OPENCODE_EXPERIMENTAL_CAPSULE")
+  },
+  // Gates the post-turn reconcile loop (re-actuation toward acceptance). Off →
+  // the runner's reconcile hook is a no-op; turn behavior is unchanged.
+  get OPENCODE_EXPERIMENTAL_CAPSULE_RECONCILE() {
+    return truthy("OPENCODE_EXPERIMENTAL_CAPSULE_RECONCILE")
+  },
+  // Gates pre-apply scope admission (deny writes outside the capsule scope). Off →
+  // the permission layer's capsule check finds no violations; behavior is unchanged.
+  get OPENCODE_EXPERIMENTAL_CAPSULE_ADMISSION() {
+    return truthy("OPENCODE_EXPERIMENTAL_CAPSULE_ADMISSION")
+  },
+  // Gates the SkillOpt-Sleep startup hook (harvest -> mine -> replay -> gate ->
+  // stage/adopt). Off → the location-boot hook is a no-op regardless of config,
+  // so the self-evolution companion never runs or spends budget unless opted in.
+  get OPENCODE_EXPERIMENTAL_SKILLOPT() {
+    return truthy("OPENCODE_EXPERIMENTAL_SKILLOPT")
+  },
   get OPENCODE_TUI_CONFIG() {
     return process.env["OPENCODE_TUI_CONFIG"]
   },

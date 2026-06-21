@@ -7,7 +7,9 @@ import { Flock } from "./util/flock"
 import { Flag } from "./flag/flag"
 import { LayerNode } from "./effect/layer-node"
 
-const app = "opencode"
+// Override to give a fork its own config/data/cache/state dirs (e.g. "capsules"),
+// keeping it cleanly separated from an upstream opencode install. Default unchanged.
+const app = process.env["OPENCODE_APP_NAME"] ?? "opencode"
 const data = path.join(xdgData!, app)
 const cache = path.join(xdgCache!, app)
 const config = path.join(xdgConfig!, app)

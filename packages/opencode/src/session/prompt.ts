@@ -14,6 +14,7 @@ import { type Tool as AITool, tool, jsonSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { SystemPrompt } from "./system"
+import * as Capsule from "./capsule"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
@@ -1136,6 +1137,12 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
+        // Capsule reconcile loop: re-actuate toward acceptance after the model
+        // settles. `reconcileFeedback` is injected ephemerally for one turn.
+        let reconcileAttempts = 0
+        let reconcileFeedback: string | undefined = undefined
+        const capsuleDirs = [ctx.directory, ctx.worktree]
+        const capsuleRoot = ctx.worktree ?? ctx.directory
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
@@ -1178,8 +1185,22 @@ export const layer = Layer.effect(
                 callID: orphan.callID,
               })
             }
-            yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
-            break
+            // The turn settled. Let the capsule reconciler re-actuate toward unmet
+            // acceptance criteria before exiting; it escalates at its attempt cap.
+            const feedback = orphan
+              ? undefined
+              : yield* Effect.promise(() => Capsule.afterTurn(capsuleDirs, capsuleRoot, reconcileAttempts))
+            if (feedback !== undefined) {
+              reconcileFeedback = feedback
+              reconcileAttempts++
+              yield* Effect.logInfo("capsule reconcile re-actuating", {
+                "session.id": sessionID,
+                attempt: reconcileAttempts,
+              })
+            } else {
+              yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
+              break
+            }
           }
 
           step++
@@ -1312,7 +1333,12 @@ export const layer = Layer.effect(
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const capsuleContext = yield* Effect.promise(() => Capsule.context(capsuleDirs))
+            const system = [...env, ...instructions, ...(skills ? [skills] : []), ...(capsuleContext ? [capsuleContext] : [])]
+            // Consume the pending capsule gap feedback for exactly this turn
+            // (ephemeral — never persisted to durable history).
+            const turnFeedback = reconcileFeedback
+            reconcileFeedback = undefined
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -1324,6 +1350,7 @@ export const layer = Layer.effect(
               system,
               messages: [
                 ...modelMsgs,
+                ...(turnFeedback ? [{ role: "user" as const, content: turnFeedback }] : []),
                 ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
               ],
               tools,

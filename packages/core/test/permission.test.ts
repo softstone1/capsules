@@ -7,6 +7,7 @@ import { Location } from "@opencode-ai/core/location"
 import { PermissionV2 } from "@opencode-ai/core/permission"
 import { PermissionTable } from "@opencode-ai/core/permission/sql"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
+import { CapsuleAdmission } from "@opencode-ai/core/capsule/admission"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -41,6 +42,7 @@ const layer = PermissionV2.locationLayer.pipe(
   Layer.provideMerge(sessions),
   Layer.provideMerge(SessionExecution.noopLayer),
   Layer.provideMerge(saved),
+  Layer.provide(CapsuleAdmission.noop),
 )
 const it = testEffect(layer)
 

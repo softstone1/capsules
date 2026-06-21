@@ -4,6 +4,7 @@ import { DateTime, Effect, Layer, Schema } from "effect"
 import { Location } from "../location"
 import { SystemContext } from "./index"
 import { InstructionContext } from "../instruction-context"
+import { CapsuleSource } from "../capsule/source"
 import { SystemContextRegistry } from "./registry"
 
 const builtIns = Layer.effectDiscard(
@@ -40,7 +41,7 @@ const builtIns = Layer.effectDiscard(
   }),
 )
 
-export const layer = Layer.mergeAll(builtIns, InstructionContext.layer).pipe(
+export const layer = Layer.mergeAll(builtIns, InstructionContext.layer, CapsuleSource.layer).pipe(
   Layer.provideMerge(SystemContextRegistry.layer),
 )
 

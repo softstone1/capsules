@@ -1,0 +1,16 @@
+{
+  "metadata": { "name": "capsules", "generation": 2 },
+  "spec": {
+    "goal": "capsules — a fork of opencode (the open source AI coding agent) that adds a capsule control plane: a typed manifest becoming the single source of truth for project context, driven by a Kubernetes-style reconcile loop.",
+    "invariants": [
+      "Match the surrounding code: no aliased or star imports, avoid try/catch and else, prefer early returns and Bun APIs, rely on type inference.",
+      "Typecheck per package with `bun typecheck` (tsgo), never tsc; tests run from a package dir, never the repo root.",
+      "Default branch is dev; use conventional commit/PR titles (type(scope): summary) and short hyphenated branch names."
+    ],
+    "artifacts": {
+      "conventions": { "path": "AGENTS.md", "description": "branch, commit, code-style and testing rules" },
+      "runtime": { "path": "CONTEXT.md", "description": "session runtime and the System Context / Context Epoch model" },
+      "capsule-plan": { "path": "specs/v2/capsule-manifest.md", "description": "capsule manifest migration roadmap and current status" }
+    }
+  }
+}
