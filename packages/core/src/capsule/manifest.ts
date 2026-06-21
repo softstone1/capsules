@@ -74,6 +74,22 @@ export const AcceptanceItem = Schema.Union([Predicate, Schema.NonEmptyString])
 export type AcceptanceItem = typeof AcceptanceItem.Type
 
 /**
+ * The assembly map: which existing sources the manifest composes (the path toward
+ * "manifest as the single source of truth"). v0 supports `skills` selection — the
+ * need-to-know / token lever: filter the skill catalogue the model sees.
+ */
+export const SkillSelection = Schema.Struct({
+  include: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  exclude: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+})
+export type SkillSelection = typeof SkillSelection.Type
+
+export const Compose = Schema.Struct({
+  skills: Schema.optional(SkillSelection),
+})
+export type Compose = typeof Compose.Type
+
+/**
  * Authored desired state.
  *
  * v0 keeps `invariants` / `gates` / `acceptance` as human-readable strings: they
@@ -90,6 +106,7 @@ export const Spec = Schema.Struct({
   acceptance: Schema.optional(Schema.Array(AcceptanceItem)),
   artifacts: Schema.optional(Schema.Record(Schema.String, Artifact)),
   convergence: Schema.optional(ConvergenceStrategy),
+  compose: Schema.optional(Compose),
 })
 
 /** One structured status fact, latest-wins per `type`. Reconciler-owned. */

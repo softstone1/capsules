@@ -16,6 +16,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import * as Capsule from "@/session/capsule"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap } from "@opencode-ai/core/location-layer"
@@ -40,7 +41,7 @@ export function provider(model: Provider.Model) {
 
 export interface Interface {
   readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
-  readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
+  readonly skills: (agent: Agent.Info, capsuleDirs?: ReadonlyArray<string>) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SystemPrompt") {}
@@ -91,17 +92,22 @@ export const layer = Layer.effect(
         ].filter((part): part is string => part !== undefined)
       }),
 
-      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
+      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info, capsuleDirs?: ReadonlyArray<string>) {
         if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
         const list = yield* skill.available(agent)
+        // Capsule skill selection (spec.compose.skills): the need-to-know lever.
+        // Inert unless the flag + a manifest with a skills selection.
+        const filtered = capsuleDirs
+          ? yield* Effect.promise(() => Capsule.filterSkills(capsuleDirs, list, (item) => item.name))
+          : list
 
         return [
           "Skills provide specialized instructions and workflows for specific tasks.",
           "Use the skill tool to load a skill when a task matches its description.",
           // the agents seem to ingest the information about skills a bit better if we present a more verbose
           // version of them here and a less verbose version in tool description, rather than vice versa.
-          Skill.fmt(list, { verbose: true }),
+          Skill.fmt([...filtered], { verbose: true }),
         ].join("\n")
       }),
     })

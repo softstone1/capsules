@@ -56,6 +56,27 @@ export async function load(dirs: ReadonlyArray<string>): Promise<CapsuleManifest
   return undefined
 }
 
+/**
+ * Filter a skill list to the manifest's `spec.compose.skills` selection — the
+ * need-to-know lever, so a project carries only the skills it declares. Inert
+ * (returns the list unchanged) when the flag is off, there's no manifest, or no
+ * skills selection. Resolution: `include` (if any) restricts, then `exclude` removes.
+ */
+export async function filterSkills<T>(
+  dirs: ReadonlyArray<string>,
+  items: ReadonlyArray<T>,
+  nameOf: (item: T) => string,
+): Promise<ReadonlyArray<T>> {
+  if (!flag("OPENCODE_EXPERIMENTAL_CAPSULE")) return items
+  const manifest = await load(dirs)
+  const selection = manifest?.spec.compose?.skills
+  if (!selection) return items
+  const include = selection.include
+  const exclude = new Set(selection.exclude ?? [])
+  const restricted = include && include.length > 0 ? items.filter((item) => include.includes(nameOf(item))) : items
+  return exclude.size > 0 ? restricted.filter((item) => !exclude.has(nameOf(item))) : restricted
+}
+
 /** The rendered manifest block to append to the system prompt, or undefined when off/absent. */
 export async function context(dirs: ReadonlyArray<string>): Promise<string | undefined> {
   if (!flag("OPENCODE_EXPERIMENTAL_CAPSULE")) return undefined

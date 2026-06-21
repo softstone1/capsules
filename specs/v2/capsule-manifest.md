@@ -355,9 +355,11 @@ Everything flows through the manifest:
   structured, instantiable definitions — the same transformation applied to a
   canned `spec`. A project instantiates a template instead of authoring from
   scratch.
-- **Skill / context filtering via `spec.compose`.** The manifest selects which
-  skills and instructions the model sees — the need-to-know lever — replacing
-  "show everything."
+- **Skill filtering via `spec.compose.skills` (shipped).** The manifest selects
+  which skills the model sees (`{ include, exclude }`) — the need-to-know / token
+  lever. Schema in `capsule/manifest.ts` (`Compose`/`SkillSelection`); V1 filters in
+  `session/system.ts` via `Capsule.filterSkills` (inert when off / no selection).
+  Instructions/constitution composition is the next assembler slice.
 
 Sequencing rule: the assembler and template system land **after** the reconcile
 loop (increment 2) proves the manifest is load-bearing, so we never make the
