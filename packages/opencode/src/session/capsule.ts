@@ -83,12 +83,16 @@ export async function afterTurn(
   // convergence depends on has changed — re-evaluation is redundant.
   const fingerprint = await fingerprintOf(manifest, root)
   const previous = await readStatus(root)
-  if (previous?.phase === "Converged" && previous.lastConvergedHash === fingerprint) return undefined
+  // Gates with no scope can't be fingerprinted cheaply, so don't skip those.
+  const canSkip = CapsuleReconcile.gates(manifest).length === 0 || (manifest.spec.scope?.length ?? 0) > 0
+  if (canSkip && previous?.phase === "Converged" && previous.lastConvergedHash === fingerprint) return undefined
   const env: CapsulePredicate.Env = {
     resolve: (path) => (isAbsolute(path) ? path : join(root, path)),
     read: (path) => Effect.promise(() => read(path)),
   }
-  const decision = await Effect.runPromise(CapsuleReconcile.evaluate({ manifest, env, attempts }))
+  const decision = await Effect.runPromise(
+    CapsuleReconcile.evaluate({ manifest, env, attempts, gates: gateRunner(root) }),
+  )
   // Persist status only on converge (reconciler-owned, separate from the manifest).
   if (decision._tag === "Converged") {
     await writeStatus(root, { ...CapsuleReconcile.status(manifest, decision), lastConvergedHash: fingerprint })
@@ -129,7 +133,40 @@ async function fingerprintOf(manifest: CapsuleManifest.Manifest, root: string): 
       return `${path}=${content === undefined ? "∅" : Hash.sha256(content)}`
     }),
   )
+  // Gates verify the whole scope, so changes anywhere in scope must re-run them.
+  const gateCommands = CapsuleReconcile.gates(manifest)
+  if (gateCommands.length > 0) {
+    parts.push("gates=" + Hash.sha256(JSON.stringify(gateCommands)))
+    for (const glob of manifest.spec.scope ?? []) {
+      for await (const file of new Bun.Glob(glob).scan({ cwd: root, onlyFiles: true })) {
+        const content = await read(join(root, file))
+        parts.push(`${file}=${content === undefined ? "∅" : Hash.sha256(content)}`)
+      }
+    }
+  }
   return Hash.sha256(JSON.stringify([manifest.metadata.generation ?? 0, parts.sort()]))
+}
+
+const GATE_TIMEOUT_MS = 120_000
+
+/** A gate runner that executes a command in the project root and reports exit status + output. */
+function gateRunner(root: string): CapsuleReconcile.GateRunner {
+  return { run: (command) => Effect.promise(() => runCommand(command, root)) }
+}
+
+async function runCommand(command: string, root: string): Promise<CapsuleReconcile.GateRunResult> {
+  try {
+    const argv = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command]
+    const proc = Bun.spawn(argv, { cwd: root, stdout: "pipe", stderr: "pipe", env: process.env })
+    const stdout = new Response(proc.stdout).text()
+    const stderr = new Response(proc.stderr).text()
+    const killer = setTimeout(() => proc.kill(), GATE_TIMEOUT_MS)
+    const exitCode = await proc.exited
+    clearTimeout(killer)
+    return { ok: exitCode === 0, output: (await stdout) + (await stderr) }
+  } catch (error) {
+    return { ok: false, output: String(error) }
+  }
 }
 
 /**

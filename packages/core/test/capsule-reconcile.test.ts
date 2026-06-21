@@ -91,4 +91,23 @@ describe("capsule reconcile", () => {
     expect(CapsuleReconcile.feedback(m, gap)).toContain("file exists: x")
     expect(CapsuleReconcile.feedback(m, { _tag: "Converged" })).toBeUndefined()
   })
+
+  const gateRunner = (pass: (command: string) => boolean): CapsuleReconcile.GateRunner => ({
+    run: (command) => Effect.succeed({ ok: pass(command), output: pass(command) ? "ok" : `FAILED: ${command}` }),
+  })
+
+  test("gates: passing gate converges, failing gate re-actuates", () => {
+    const m = manifest([], { gates: ["typecheck"] }) // kind Capsule -> gates_and_acceptance
+    expect(run(CapsuleReconcile.evaluate({ manifest: m, env: envFrom({}), attempts: 0, gates: gateRunner(() => true) }))._tag).toBe(
+      "Converged",
+    )
+    const failed = run(CapsuleReconcile.evaluate({ manifest: m, env: envFrom({}), attempts: 0, gates: gateRunner(() => false) }))
+    expect(failed._tag).toBe("NeedsActuation")
+    if (failed._tag === "NeedsActuation") expect(failed.gap[0]).toContain("gate failed")
+  })
+
+  test("gates are advisory (not run) when no runner is provided", () => {
+    const m = manifest([], { gates: ["typecheck"] })
+    expect(run(CapsuleReconcile.evaluate({ manifest: m, env: envFrom({}), attempts: 0 }))._tag).toBe("Converged")
+  })
 })

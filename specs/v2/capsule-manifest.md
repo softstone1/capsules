@@ -212,12 +212,25 @@ with-injected-reader, so it tests without a filesystem or model.
   per-strategy `checkables`; `status(...)` and `feedback(...)` builders;
   `DEFAULT_MAX_ATTEMPTS` cap.
 
-Convergence semantics today: `acceptance_only` and `gates_and_acceptance` converge
-on typed acceptance predicates (executable shell gates are a later sub-increment);
-`artifacts_present` converges when referenced artifacts exist; `manual_approval`
-never auto-drives the loop. **A manifest with no typed predicates converges
-immediately** — the loop is a no-op until you author machine-checkable criteria
-(opt-in twice: flag + predicates).
+Convergence semantics today: `acceptance_only` converges on typed acceptance
+predicates; `gates_and_acceptance` ALSO runs `spec.gates` as shell commands (each
+must exit 0) — so a Capsule converges when its acceptance predicates pass *and* its
+gates are green; `artifacts_present` converges when referenced artifacts exist;
+`manual_approval` never auto-drives the loop. **A manifest with no predicates and no
+gates converges immediately** — the loop is a no-op until you author machine-checkable
+criteria (opt-in twice: flag + predicates/gates).
+
+### Executable gates (shipped)
+
+`gates_and_acceptance` runs `spec.gates` as commands. The decision logic
+(`reconcile.ts`) takes an injected `GateRunner` so it stays pure/testable; the V1
+adapter provides a real runner (`Bun.spawn` `sh -c` / `cmd /c`, 120s timeout,
+captured output). A non-zero exit is a gap (`gate failed: \`<cmd>\` — <output tail>`)
+that drives re-actuation. Gates are advisory (not executed) when no runner is wired —
+e.g. the dormant V2 path. Change-aware skip stays correct: when gates apply, the
+fingerprint also hashes the `scope` files (via `Bun.Glob`), and a manifest with gates
+but no scope disables the skip (always re-verifies). Verified live: gate
+`test -f src/done.txt` fails → feedback, file created → converged.
 
 ### Increment 2b — runner wiring (shipped)
 
@@ -252,10 +265,10 @@ against new core); 142 tests pass including the full session-runner suite (off-p
 unchanged) and a reconciler integration test (flag-off inert → failing predicate
 feedback → cap escalate → converged + status persisted).
 
-> Not yet wired: executable shell **gates** (gates run as commands), invariant
-> **admission** (increment 3), and surfacing convergence/escalation in the UI
-> (a `/capsule` command, increment 5). The reconciler drives acceptance predicates
-> only; escalation currently just ends the activity (no user-facing notice yet).
+> Since shipped: executable gates (this increment), admission (3), and the
+> `capsule` CLI (5a). Still open: in-TUI surfacing of escalation (a denied write /
+> escalation only logs today — no in-session indicator), typed deny-invariants, and
+> the capsule graph (5b).
 
 ### Increment 3 — scope admission (shipped)
 
@@ -309,9 +322,9 @@ wiring change).
 The fingerprint folds `metadata.generation` *and* the input-set, so an authored
 spec edit (even without a generation bump) or any workspace change to a relevant
 file changes the fingerprint and forces re-evaluation — the skip can never hide a
-regression. Today this trims redundant predicate reads; it becomes a real
-wall-clock win once executable shell **gates** exist (deferred), and the
-fingerprint is the same staleness signal increment 5's graph nodes will use.
+regression. With executable gates shipped, the skip is now a real wall-clock win —
+it avoids re-running gate commands (tests/typecheck) when nothing in scope changed —
+and the fingerprint is the same staleness signal increment 5's graph nodes will use.
 
 Verified: core + consumers typecheck clean; `capsule-reconciler.test.ts` proves
 the skip deterministically (a sentinel written into the status file survives an

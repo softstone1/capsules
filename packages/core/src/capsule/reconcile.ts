@@ -25,6 +25,21 @@ export type Decision =
   // Gap persists past the cap (oscillation / budget) — stop for a human.
   | { readonly _tag: "Escalate"; readonly reason: string }
 
+export interface GateRunResult {
+  readonly ok: boolean
+  readonly output: string
+}
+
+/** Runs a verification gate (a shell command). Injected so the decision stays pure/testable. */
+export interface GateRunner {
+  readonly run: (command: string) => Effect.Effect<GateRunResult>
+}
+
+/** The verification gates that govern convergence (only the `gates_and_acceptance` strategy runs them). */
+export function gates(manifest: CapsuleManifest.Manifest): ReadonlyArray<string> {
+  return CapsuleKind.convergence(manifest) === "gates_and_acceptance" ? (manifest.spec.gates ?? []) : []
+}
+
 /** The default re-actuation cap; guarantees the (future) runner loop terminates. */
 export const DEFAULT_MAX_ATTEMPTS = 3
 
@@ -41,32 +56,46 @@ export function decide(input: {
   return { _tag: "NeedsActuation", gap: input.failing }
 }
 
-/** Evaluate a manifest's checkable acceptance against the workspace, then decide. */
+/** Evaluate a manifest's checkable acceptance + verification gates, then decide. */
 export function evaluate(input: {
   readonly manifest: CapsuleManifest.Manifest
   readonly env: CapsulePredicate.Env
   readonly attempts: number
   readonly maxAttempts?: number
+  // Optional: when present, `spec.gates` (for the gates_and_acceptance strategy) run
+  // as commands and must exit 0. Absent ⟹ gates are advisory (not executed).
+  readonly gates?: GateRunner
 }): Effect.Effect<Decision> {
-  const strategy = CapsuleKind.convergence(input.manifest)
-  // A human signs off on manual_approval; the loop never drives it.
-  if (strategy === "manual_approval") return Effect.succeed<Decision>({ _tag: "Converged" })
-  const checks = checkables(input.manifest, strategy)
-  if (checks.length === 0) return Effect.succeed<Decision>({ _tag: "Converged" })
-  return Effect.forEach(
-    checks,
-    (check) => CapsulePredicate.evaluate(check.predicate, input.env).pipe(Effect.map((pass) => ({ pass, check }))),
-    { concurrency: "unbounded" },
-  ).pipe(
-    Effect.map((results) =>
-      decide({
-        hasCheckable: true,
-        failing: results.filter((result) => !result.pass).map((result) => result.check.describe),
-        attempts: input.attempts,
-        maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
-      }),
-    ),
-  )
+  return Effect.gen(function* () {
+    const strategy = CapsuleKind.convergence(input.manifest)
+    // A human signs off on manual_approval; the loop never drives it.
+    if (strategy === "manual_approval") return { _tag: "Converged" } as Decision
+    const checks = checkables(input.manifest, strategy)
+    const gateCommands = input.gates ? gates(input.manifest) : []
+    if (checks.length === 0 && gateCommands.length === 0) return { _tag: "Converged" } as Decision
+    const predicateResults = yield* Effect.forEach(
+      checks,
+      (check) => CapsulePredicate.evaluate(check.predicate, input.env).pipe(Effect.map((pass) => ({ pass, describe: check.describe }))),
+      { concurrency: "unbounded" },
+    )
+    const runner = input.gates
+    const gateResults = runner
+      ? yield* Effect.forEach(gateCommands, (command) => runner.run(command).pipe(Effect.map((result) => ({ pass: result.ok, describe: gateGap(command, result) }))), {
+          concurrency: 1,
+        })
+      : []
+    return decide({
+      hasCheckable: true,
+      failing: [...predicateResults, ...gateResults].filter((result) => !result.pass).map((result) => result.describe),
+      attempts: input.attempts,
+      maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    })
+  })
+}
+
+function gateGap(command: string, result: GateRunResult): string {
+  const tail = result.output.trim().slice(-300).replace(/\s+/g, " ").trim()
+  return `gate failed: \`${command}\`${tail ? ` — ${tail}` : ""}`
 }
 
 /**
