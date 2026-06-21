@@ -359,7 +359,12 @@ Everything flows through the manifest:
   which skills the model sees (`{ include, exclude }`) — the need-to-know / token
   lever. Schema in `capsule/manifest.ts` (`Compose`/`SkillSelection`); V1 filters in
   `session/system.ts` via `Capsule.filterSkills` (inert when off / no selection).
-  Instructions/constitution composition is the next assembler slice.
+- **Instructions composition via `spec.compose.instructions` (shipped).** The
+  manifest declares which instruction files govern; when present they render and
+  REPLACE ad-hoc AGENTS.md discovery (manifest as source of truth). `Capsule.instructions`
+  in the V1 adapter; wired in the `prompt.ts` system assembly; inert when absent.
+  Next assembler slice: full `spec.compose` (constitution/prompt-profile) and an
+  auto-assembler that folds discovered sources into the manifest.
 
 Sequencing rule: the assembler and template system land **after** the reconcile
 loop (increment 2) proves the manifest is load-bearing, so we never make the
