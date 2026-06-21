@@ -11,6 +11,7 @@ import { Identifier } from "./util/identifier"
 import { Wildcard } from "./util/wildcard"
 import { PermissionSchema } from "./permission/schema"
 import { PermissionSaved } from "./permission/saved"
+import { CapsuleAdmission } from "./capsule/admission"
 
 export { Effect, Rule, Ruleset } from "./permission/schema"
 type Effect = PermissionSchema.Effect
@@ -140,6 +141,7 @@ export const layer = Layer.effect(
     const agents = yield* AgentV2.Service
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
+    const admission = yield* CapsuleAdmission.Service
     const pending = new Map<ID, Pending>()
 
     yield* EffectRuntime.addFinalizer(() =>
@@ -181,6 +183,10 @@ export const layer = Layer.effect(
     const evaluateInput = EffectRuntime.fnUntraced(function* (input: AssertInput) {
       const rules = yield* configured(input.sessionID, input.agent)
       if (denied(input, rules)) return { effect: "deny" as const, rules }
+      // Capsule scope admission: an additive hard deny that never relaxes the
+      // rules. A no-op or disabled admission yields no violations (unchanged).
+      if ((yield* admission.violations(input.action, input.resources)).length > 0)
+        return { effect: "deny" as const, rules }
       const all = [...rules, ...(yield* savedRules())]
       const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
       const effect: Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"

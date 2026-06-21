@@ -1,6 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ConfigPermissionV1 } from "@opencode-ai/core/v1/config/permission"
 import { InstanceState } from "@/effect/instance-state"
+import * as Capsule from "@/session/capsule"
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
 import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
@@ -79,6 +80,24 @@ export const layer = Layer.effect(
       const { approved, pending } = yield* InstanceState.get(state)
       const { ruleset, ...request } = input
       let needsAsk = false
+
+      // Capsule scope admission: a hard deny for out-of-scope writes, evaluated
+      // before the rule engine. Inert unless the flag + a manifest with scope.
+      const ctx = yield* InstanceState.context
+      const violations = yield* Effect.promise(() =>
+        Capsule.scopeViolations(
+          [ctx.directory, ctx.worktree],
+          ctx.worktree ?? ctx.directory,
+          request.permission,
+          request.patterns,
+        ),
+      )
+      if (violations.length > 0) {
+        yield* Effect.logInfo("capsule admission denied", { permission: request.permission, patterns: violations })
+        return yield* new PermissionV1.DeniedError({
+          ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
+        })
+      }
 
       for (const pattern of request.patterns) {
         const rule = evaluate(request.permission, pattern, ruleset, approved)

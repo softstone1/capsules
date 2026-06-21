@@ -18,6 +18,7 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator"
 import * as SessionRunnerLLM from "@opencode-ai/core/session/runner/llm"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
+import { CapsuleReconciler } from "@opencode-ai/core/capsule/reconciler"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
@@ -86,6 +87,7 @@ const runner = SessionRunnerLLM.defaultLayer.pipe(
   Layer.provide(skillGuidance),
   Layer.provide(referenceGuidance),
   Layer.provide(config),
+  Layer.provide(CapsuleReconciler.noop),
 )
 const coordinator = SessionRunCoordinator.layer.pipe(Layer.provide(runner))
 const execution = Layer.effect(

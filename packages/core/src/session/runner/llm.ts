@@ -19,6 +19,7 @@ import { ProviderV2 } from "../../provider"
 import { QuestionV2 } from "../../question"
 import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
+import { CapsuleReconciler } from "../../capsule/reconciler"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
@@ -99,6 +100,7 @@ export const layer = Layer.effect(
     const systemContext = yield* SystemContextRegistry.Service
     const skillGuidance = yield* SkillGuidance.Service
     const referenceGuidance = yield* ReferenceGuidance.Service
+    const capsule = yield* CapsuleReconciler.Service
     const config = yield* Config.Service
     const db = (yield* Database.Service).db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
@@ -175,6 +177,7 @@ export const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      feedback: string | undefined,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
       const session = yield* getSession(sessionID)
@@ -223,7 +226,14 @@ export const layer = Layer.effect(
         system: [agent.info?.system, system.baseline]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
-        messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
+        messages: [
+          ...toLLMMessages(context, model),
+          // Ephemeral capsule gap feedback: appended to this provider request only,
+          // never persisted to durable history (rebuilt from status each pass).
+          // Suppressed at the step limit, where tools are disabled and it is moot.
+          ...(feedback !== undefined && !isLastStep ? [Message.user(feedback)] : []),
+          ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
+        ],
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
@@ -347,31 +357,32 @@ export const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      feedback: string | undefined,
     ) => Effect.Effect<boolean, RunError>
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step).pipe(
+    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, feedback) {
+      return yield* runTurnAttempt(sessionID, promotion, step, feedback).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
               return yield* Effect.die("Post-compaction provider attempt cannot recover another overflow")
             yield* Effect.yieldNow
-            return yield* runAfterOverflowCompaction(sessionID, defect.transition.promotion, step)
+            return yield* runAfterOverflowCompaction(sessionID, defect.transition.promotion, step, feedback)
           }),
         ),
       )
     })
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step, compaction.compactAfterOverflow).pipe(
+    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, feedback) {
+      return yield* runTurnAttempt(sessionID, promotion, step, feedback, compaction.compactAfterOverflow).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             yield* Effect.yieldNow
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
-              return yield* runAfterOverflowCompaction(sessionID, undefined, step)
-            return yield* runTurn(sessionID, defect.transition.promotion, step)
+              return yield* runAfterOverflowCompaction(sessionID, undefined, step, feedback)
+            return yield* runTurn(sessionID, defect.transition.promotion, step, feedback)
           }),
         ),
       )
@@ -389,10 +400,24 @@ export const layer = Layer.effect(
       let openActivity = input.force === true || hasSteer || hasQueue
       while (openActivity) {
         let needsContinuation = true
+        let feedback: string | undefined = undefined
+        let reconcileAttempts = 0
         for (let step = 1; needsContinuation; step++) {
-          needsContinuation = yield* runTurn(input.sessionID, promotion, step)
+          needsContinuation = yield* runTurn(input.sessionID, promotion, step, feedback)
           promotion = "steer"
+          feedback = undefined
           if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          // After the activity settles (model done, no steering), let the capsule
+          // reconciler re-actuate toward acceptance. A no-op reconciler returns
+          // undefined, so this is inert unless the feature is wired and enabled.
+          // The reconciler escalates at its attempt cap, guaranteeing termination.
+          if (!needsContinuation) {
+            feedback = yield* capsule.afterTurn(reconcileAttempts)
+            if (feedback !== undefined) {
+              reconcileAttempts++
+              needsContinuation = true
+            }
+          }
         }
         openActivity = yield* SessionInput.hasPending(db, input.sessionID, "queue")
         promotion = openActivity ? "queue" : undefined
