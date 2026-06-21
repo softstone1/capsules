@@ -172,7 +172,8 @@ Each row is independently shippable and reversible. ✅ = done.
 | 2b | **Runner wiring** (re-actuation) | `CapsuleReconciler` service (noop/real); post-turn hook evaluates the capsule, injects **ephemeral** gap feedback, re-actuates under the cap; writes `status` on converge | `OPENCODE_EXPERIMENTAL_CAPSULE_RECONCILE` | Yes (additive, no-op off) | ✅ |
 | 3 | **Scope admission** | `CapsuleAdmission` service consulted in the permission deny pre-check; out-of-scope `edit` writes rejected **pre-apply** | `OPENCODE_EXPERIMENTAL_CAPSULE_ADMISSION` | No (permission layer) | ✅ |
 | 4 | **Change-aware skip** | fingerprint (generation + convergence-input hashes); skip re-evaluation when fresh | (under reconcile flag) | No | ✅ |
-| 5 | **Capsule graph** | DAG of nodes (application → feature); per-node scope; staleness/drift; `/capsule` surface | `OPENCODE_EXPERIMENTAL_CAPSULE_GRAPH` | No | Planned |
+| 5a | **CLI surface + templates** | `capsule init [general\|feature]` scaffolds a manifest; `capsule status` shows manifest + reconcile status | — | No | ✅ |
+| 5b | **Capsule graph** | DAG of nodes (application → feature); per-node scope; staleness/drift | `OPENCODE_EXPERIMENTAL_CAPSULE_GRAPH` | No | Planned |
 
 ### Increment 1 — shipped
 
