@@ -5,6 +5,7 @@ import { isAbsolute, join, relative } from "path"
 import { CapsuleManifest } from "@opencode-ai/core/capsule/manifest"
 import { CapsulePredicate } from "@opencode-ai/core/capsule/predicate"
 import { CapsuleReconcile } from "@opencode-ai/core/capsule/reconcile"
+import { Hash } from "@opencode-ai/core/util/hash"
 
 /**
  * V1-runtime adapter for the capsule control plane.
@@ -78,12 +79,57 @@ export async function afterTurn(
   if (!flag("OPENCODE_EXPERIMENTAL_CAPSULE_RECONCILE")) return undefined
   const manifest = await load(dirs)
   if (!manifest) return undefined
+  // Change-aware skip: if we last converged at this exact fingerprint, nothing
+  // convergence depends on has changed — re-evaluation is redundant.
+  const fingerprint = await fingerprintOf(manifest, root)
+  const previous = await readStatus(root)
+  if (previous?.phase === "Converged" && previous.lastConvergedHash === fingerprint) return undefined
   const env: CapsulePredicate.Env = {
     resolve: (path) => (isAbsolute(path) ? path : join(root, path)),
     read: (path) => Effect.promise(() => read(path)),
   }
   const decision = await Effect.runPromise(CapsuleReconcile.evaluate({ manifest, env, attempts }))
+  // Persist status only on converge (reconciler-owned, separate from the manifest).
+  if (decision._tag === "Converged") {
+    await writeStatus(root, { ...CapsuleReconcile.status(manifest, decision), lastConvergedHash: fingerprint })
+    return undefined
+  }
   return CapsuleReconcile.feedback(manifest, decision)
+}
+
+const decodeStatus = Schema.decodeUnknownOption(CapsuleManifest.Status, { errors: "all", onExcessProperty: "ignore" })
+
+function statusPath(root: string) {
+  return join(root, ".opencode", "capsule-status.json")
+}
+
+async function readStatus(root: string): Promise<CapsuleManifest.Status | undefined> {
+  const text = await read(statusPath(root))
+  if (!text) return undefined
+  try {
+    return Option.getOrUndefined(decodeStatus(JSON.parse(text) as unknown))
+  } catch {
+    return undefined
+  }
+}
+
+async function writeStatus(root: string, status: CapsuleManifest.Status): Promise<void> {
+  try {
+    await Bun.write(statusPath(root), JSON.stringify(status, null, 2))
+  } catch {
+    // best-effort: a status write failure never breaks the turn
+  }
+}
+
+/** sha256 over the manifest generation and every file convergence depends on. */
+async function fingerprintOf(manifest: CapsuleManifest.Manifest, root: string): Promise<string> {
+  const parts = await Promise.all(
+    CapsuleReconcile.inputs(manifest).map(async (path) => {
+      const content = await read(isAbsolute(path) ? path : join(root, path))
+      return `${path}=${content === undefined ? "∅" : Hash.sha256(content)}`
+    }),
+  )
+  return Hash.sha256(JSON.stringify([manifest.metadata.generation ?? 0, parts.sort()]))
 }
 
 /**

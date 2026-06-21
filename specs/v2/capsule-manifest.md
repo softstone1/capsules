@@ -37,9 +37,10 @@ reusing the pure core modules (`@opencode-ai/core/capsule/{manifest,predicate,re
 `src/greet.ts`, the model declared done, the reconciler re-actuated 3×, and the
 model created `test/greet.test.ts` despite the prompt forbidding it — then converged.
 
-The V1 adapter is intentionally minimal (no status persistence / change-aware skip
-yet — those live in V2's `reconciler.ts`). When V2 becomes the runtime, the V1
-integration is removed and the `packages/core` path takes over unchanged.
+The V1 adapter is at parity with the V2 design: context (1), reconcile re-actuation
+(2b), scope admission (3), change-aware skip + status persistence to
+`.opencode/capsule-status.json` (4). When V2 becomes the runtime, the V1 integration
+is removed and the `packages/core` path takes over unchanged.
 
 ---
 
