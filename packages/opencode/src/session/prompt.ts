@@ -1334,7 +1334,15 @@ export const layer = Layer.effect(
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const capsuleContext = yield* Effect.promise(() => Capsule.context(capsuleDirs))
-            const system = [...env, ...instructions, ...(skills ? [skills] : []), ...(capsuleContext ? [capsuleContext] : [])]
+            // When the manifest declares spec.compose.instructions, it replaces ad-hoc
+            // AGENTS.md discovery (the manifest is the source of truth). Else: unchanged.
+            const composedInstructions = yield* Effect.promise(() => Capsule.instructions(capsuleDirs, capsuleRoot))
+            const system = [
+              ...env,
+              ...(composedInstructions !== undefined ? [composedInstructions] : instructions),
+              ...(skills ? [skills] : []),
+              ...(capsuleContext ? [capsuleContext] : []),
+            ]
             // Consume the pending capsule gap feedback for exactly this turn
             // (ephemeral — never persisted to durable history).
             const turnFeedback = reconcileFeedback

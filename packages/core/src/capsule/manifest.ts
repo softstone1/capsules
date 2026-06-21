@@ -86,6 +86,10 @@ export type SkillSelection = typeof SkillSelection.Type
 
 export const Compose = Schema.Struct({
   skills: Schema.optional(SkillSelection),
+  // Instruction files the manifest declares as governing. When present, these
+  // replace ad-hoc AGENTS.md discovery — the manifest becomes the source of truth
+  // for project prose. Paths are project-relative.
+  instructions: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 })
 export type Compose = typeof Compose.Type
 

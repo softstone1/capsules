@@ -77,6 +77,27 @@ export async function filterSkills<T>(
   return exclude.size > 0 ? restricted.filter((item) => !exclude.has(nameOf(item))) : restricted
 }
 
+/**
+ * The composed instruction block when the manifest declares `spec.compose.instructions`
+ * — the manifest's chosen instruction files, read and rendered, to REPLACE ad-hoc
+ * AGENTS.md discovery. Returns undefined when the flag is off, there's no manifest,
+ * or no `compose.instructions` is declared (caller keeps auto-discovery).
+ */
+export async function instructions(dirs: ReadonlyArray<string>, root: string): Promise<string | undefined> {
+  if (!flag("OPENCODE_EXPERIMENTAL_CAPSULE")) return undefined
+  const manifest = await load(dirs)
+  const declared = manifest?.spec.compose?.instructions
+  if (!declared || declared.length === 0) return undefined
+  const parts = await Promise.all(
+    declared.map(async (rel) => {
+      const content = await read(isAbsolute(rel) ? rel : join(root, rel))
+      return content ? `Instructions from: ${rel}\n${content}` : undefined
+    }),
+  )
+  const present = parts.filter((part): part is string => part !== undefined)
+  return present.length > 0 ? present.join("\n\n") : undefined
+}
+
 /** The rendered manifest block to append to the system prompt, or undefined when off/absent. */
 export async function context(dirs: ReadonlyArray<string>): Promise<string | undefined> {
   if (!flag("OPENCODE_EXPERIMENTAL_CAPSULE")) return undefined
